@@ -38,28 +38,13 @@ def read_exports():
     with open(os.path.join(exports_dir, 'column_info.pkl'), 'rb') as file:
         column_info = pickle.load(file)
 
-    return model, continuous_features, std_scaler, discrete_features, minmax_scaler, column_order, column_info
+    # load location hierarchy
+    with open(os.path.join(exports_dir, 'location_hierarchy.pkl'), 'rb') as file:
+        location_hierarchy = pickle.load(file)
 
-model, continuous_features, std_scaler, discrete_features, minmax_scaler, column_order, column_info = read_exports()
+    return model, continuous_features, std_scaler, discrete_features, minmax_scaler, column_order, column_info, location_hierarchy
 
-@st.cache_data
-def generate_category_options():
-    city_options = []
-    district_options = []
-    for name in column_order:
-        if name.startswith('city_'):
-            city_options.append(name[5:])
-        elif name.startswith('district_'):
-            district_options.append(name[9:])
-
-    city_options.remove('other_city')
-    district_options.remove('other_district')
-    city_options = ['other_city'] + city_options
-    district_options = ['other_district'] + district_options
-
-    return city_options, district_options
-
-city_options, district_options = generate_category_options()
+model, continuous_features, std_scaler, discrete_features, minmax_scaler, column_order, column_info, location_hierarchy = read_exports()
 
 def generate_features(df):
     df['sqft_per_bed'] = df['house_size'] / df['beds']
@@ -68,7 +53,10 @@ def generate_features(df):
     
     return df
 
-input_form = st.form(key="input_form")
+input_form = st.container()
+
+district_options = location_hierarchy.keys()
+all_city_options = list(set(city for cities in location_hierarchy.values() for city in cities))
 
 with input_form:
 
@@ -128,25 +116,27 @@ with input_form:
         key="lat",
     )
 
-    city = st.selectbox(
-        label="City",
-        options=city_options,
-        index=0,
-        key="city",
-    )
+    dist_col, city_col = st.columns(2)
 
-    district = st.selectbox(
+    district = dist_col.selectbox(
         label="District",
         options=district_options,
         index=0,
         key="district",
     )
 
-    input_form_submitted = st.form_submit_button(label="Submit")
+    city = city_col.selectbox(
+        label="City",
+        options=location_hierarchy[district],
+        index=0,
+        key="city",
+    )
+
+    form_submitted = st.button(label="Submit")
 
 prediction = 0
 
-if input_form_submitted:
+if form_submitted:
 
     inputs = {
         'baths': baths,
@@ -170,6 +160,6 @@ if input_form_submitted:
     df[continuous_features] = std_scaler.transform(df[continuous_features])
     df[discrete_features] = minmax_scaler.transform(df[discrete_features])
 
-    prediction = model.predict(df)[0]
+    st.session_state['prediction'] = model.predict(df)[0]
 
-st.metric(label="Predicted Price", value=f"{prediction:,.0f} LKR")
+st.metric(label="Predicted Price", value=f"{(st.session_state['prediction'] if 'prediction' in st.session_state else 0):,.0f} LKR")
